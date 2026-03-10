@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html>
+<head>
+
+<title>Layout Feasibility Dashboard</title>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<style>
+
+body{
+font-family:Arial;
+background:#0f172a;
+color:white;
+padding:30px;
+}
+
+.container{
+max-width:1100px;
+margin:auto;
+}
+
+.grid{
+display:grid;
+grid-template-columns:1fr 1fr;
+gap:20px;
+}
+
+.card{
+background:#1e293b;
+padding:20px;
+border-radius:10px;
+}
+
+label{
+display:block;
+margin-top:10px;
+}
+
+input,select{
+width:100%;
+padding:8px;
+margin-top:5px;
+border-radius:6px;
+border:none;
+}
+
+button{
+margin-top:20px;
+padding:12px;
+width:100%;
+background:#22c55e;
+border:none;
+color:white;
+font-size:16px;
+border-radius:8px;
+cursor:pointer;
+}
+
+.result{
+background:#111827;
+padding:12px;
+margin-top:10px;
+border-radius:8px;
+}
+
+.hidden{
+display:none;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<div class="container">
+
+<h1>Layout Feasibility Dashboard</h1>
+
+<div class="grid">
+
+<div class="card">
+
+<label>Project Type</label>
+<select id="projectType" onchange="updateFields()">
+<option value="purchase">Purchase</option>
+<option value="jv">JV</option>
+<option value="both">Purchase + JV</option>
+</select>
+
+<label>Cost Unit</label>
+<select id="costUnit">
+<option value="lakh">Lakhs</option>
+<option value="crore">Crores</option>
+</select>
+
+<div id="purchaseBlock">
+
+<label>Purchase Cost per Acre</label>
+<input id="purchaseCostPerAcre" type="number">
+
+<label>Acres Purchased</label>
+<input id="acresPurchased" type="number">
+
+</div>
+
+<div id="jvBlock">
+
+<label>JV Acres</label>
+<input id="jvAcres" type="number">
+
+<label>Developer Share %</label>
+<input id="jvShare" type="number">
+
+<label>JV Advance per Acre</label>
+<input id="jvAdvance" type="number">
+
+<label>Advance Type</label>
+<select id="advanceType">
+<option value="refundable">Refundable</option>
+<option value="nonrefundable">Non-Refundable</option>
+</select>
+
+</div>
+
+<label>Development Cost per Acre</label>
+<input id="devCost" type="number">
+
+<label>Other Investment per Acre (Conversion, Khata, Legal etc.)</label>
+<input id="otherInvestmentPerAcre" type="number">
+
+<label>Sellable %</label>
+<input id="sellablePercent" type="number" value="65">
+
+<label>Plot Size (sqft)</label>
+<input id="plotSize" type="number" value="1200">
+
+<label>Selling Price ₹/sqft</label>
+<input id="sellingPrice" type="number">
+
+<button onclick="calculate()">Calculate</button>
+
+<button onclick="exportPDF()">Download Feasibility PDF</button>
+
+</div>
+
+
+<div class="card">
+
+<div class="result">
+Available Land for Selling:
+<span id="sellAcres"></span> Acres
+(<span id="sellSqft"></span> Sqft)
+</div>
+
+<div class="result">
+Total Plots: <span id="plots"></span>
+</div>
+
+<div class="result">
+Total Investment: ₹ <span id="investment"></span>
+</div>
+
+<div class="result">
+Break-even Selling Price:
+₹ <span id="breakevenSqft"></span> / sqft
+</div>
+
+<div class="result">
+Plots required to Break-even:
+<span id="breakevenPlots"></span>
+</div>
+
+<div class="result">
+Revenue per Plot:
+₹ <span id="revenuePerPlot"></span> Lakhs
+</div>
+
+<div class="result">
+Total Revenue: ₹ <span id="revenue"></span> Cr
+</div>
+
+<div class="result">
+Profit: ₹ <span id="profit"></span> Cr
+(ROI: <span id="roi"></span>%)
+</div>
+
+<canvas id="chart"></canvas>
+
+</div>
+
+</div>
+
+</div>
+
+<script>
+
+function convert(value){
+
+let unit=document.getElementById("costUnit").value;
+
+if(unit=="crore") return value*10000000;
+
+return value*100000;
+
+}
+
+function updateFields(){
+
+let type=document.getElementById("projectType").value;
+
+document.getElementById("purchaseBlock").classList.remove("hidden");
+document.getElementById("jvBlock").classList.remove("hidden");
+
+if(type=="purchase"){
+
+document.getElementById("jvBlock").classList.add("hidden");
+
+}
+
+if(type=="jv"){
+
+document.getElementById("purchaseBlock").classList.add("hidden");
+
+}
+
+}
+
+let chart;
+
+function calculate(){
+
+let purchaseCostPerAcre=convert(Number(document.getElementById("purchaseCostPerAcre").value||0));
+let acresPurchased=Number(document.getElementById("acresPurchased").value||0);
+
+let jvAcres=Number(document.getElementById("jvAcres").value||0);
+let jvShare=Number(document.getElementById("jvShare").value||0)/100;
+
+let jvAdvance=convert(Number(document.getElementById("jvAdvance").value||0));
+
+let devCost=convert(Number(document.getElementById("devCost").value||0));
+let otherInvestmentPerAcre=convert(Number(document.getElementById("otherInvestmentPerAcre").value||0));
+
+let sellablePercent=Number(document.getElementById("sellablePercent").value)/100;
+
+let plotSize=Number(document.getElementById("plotSize").value);
+
+let sellingPrice=Number(document.getElementById("sellingPrice").value);
+
+let advanceType=document.getElementById("advanceType").value;
+
+let sellLand=(acresPurchased*sellablePercent)+(jvAcres*jvShare*sellablePercent);
+
+let sellArea=sellLand*43560;
+
+let plots=Math.floor(sellArea/plotSize);
+
+let purchaseCost=purchaseCostPerAcre*acresPurchased;
+
+let developmentCost=devCost*(acresPurchased+jvAcres);
+
+let otherInvestment=otherInvestmentPerAcre*(acresPurchased+jvAcres);
+
+let jvInvestment=0;
+
+if(advanceType=="nonrefundable"){
+jvInvestment=jvAdvance*jvAcres;
+}
+
+let totalInvestment=purchaseCost+developmentCost+otherInvestment+jvInvestment;
+
+let costPerPlot=totalInvestment/plots;
+
+let breakevenSqft=costPerPlot/plotSize;
+
+let breakevenPlots=totalInvestment/(sellingPrice*plotSize);
+
+let revenuePerPlot=(sellingPrice*plotSize)/100000;
+
+let revenue=sellingPrice*plotSize*plots;
+
+let profit=revenue-totalInvestment;
+
+let roi=(profit/totalInvestment)*100;
+
+document.getElementById("sellAcres").innerText=sellLand.toFixed(2);
+document.getElementById("sellSqft").innerText=Math.round(sellArea).toLocaleString();
+document.getElementById("plots").innerText=plots;
+
+document.getElementById("investment").innerText=(totalInvestment/10000000).toFixed(2)+" Cr";
+
+document.getElementById("breakevenSqft").innerText=Math.round(breakevenSqft);
+
+document.getElementById("breakevenPlots").innerText=Math.ceil(breakevenPlots);
+
+document.getElementById("revenuePerPlot").innerText=revenuePerPlot.toFixed(2);
+
+document.getElementById("revenue").innerText=(revenue/10000000).toFixed(2);
+
+document.getElementById("profit").innerText=(profit/10000000).toFixed(2);
+
+document.getElementById("roi").innerText=roi.toFixed(1);
+
+drawChart(totalInvestment,revenue,profit);
+
+}
+
+function drawChart(investment,revenue,profit){
+
+let ctx=document.getElementById("chart");
+
+if(chart) chart.destroy();
+
+chart=new Chart(ctx,{
+type:'bar',
+data:{
+labels:["Investment","Revenue","Profit"],
+datasets:[{data:[
+investment/10000000,
+revenue/10000000,
+profit/10000000
+]}]
+}
+});
+
+}
+
+async function exportPDF(){
+
+const { jsPDF } = window.jspdf;
+
+let doc = new jsPDF();
+
+let y = 20;
+
+/* ---------- HEADER ---------- */
+
+doc.setFontSize(22);
+doc.text("LAYOUT FEASIBILITY REPORT",105,y,{align:"center"});
+
+y+=10;
+
+doc.setFontSize(11);
+doc.text("Generated by Layout Feasibility Dashboard",105,y,{align:"center"});
+
+doc.setLineWidth(0.5);
+doc.line(10,y+3,200,y+3);
+
+y+=15;
+
+
+/* ---------- PROJECT INPUTS ---------- */
+
+doc.setFontSize(16);
+doc.text("Project Inputs",14,y);
+
+y+=10;
+
+doc.setFontSize(11);
+
+let inputs=[
+
+["Project Type",document.getElementById("projectType").value],
+
+["Purchase Cost / Acre",document.getElementById("purchaseCostPerAcre").value],
+
+["Acres Purchased",document.getElementById("acresPurchased").value],
+
+["JV Acres",document.getElementById("jvAcres").value],
+
+["Developer Share %",document.getElementById("jvShare").value],
+
+["Development Cost / Acre",document.getElementById("devCost").value],
+
+["Other Investment / Acre",document.getElementById("otherInvestmentPerAcre").value],
+
+["Sellable %",document.getElementById("sellablePercent").value],
+
+["Plot Size",document.getElementById("plotSize").value+" sqft"],
+
+["Selling Price",document.getElementById("sellingPrice").value+" ₹/sqft"]
+
+];
+
+inputs.forEach(row=>{
+doc.text(row[0],20,y);
+doc.text(":",100,y);
+doc.text(row[1] || "-",110,y);
+y+=8;
+});
+
+
+/* ---------- NEW PAGE ---------- */
+
+doc.addPage();
+
+y=20;
+
+doc.setFontSize(16);
+doc.text("Financial Summary",105,y,{align:"center"});
+
+y+=15;
+
+doc.setFontSize(12);
+
+let outputs=[
+
+["Available Land for Selling",
+document.getElementById("sellAcres").innerText+" Acres"],
+
+["Sellable Area",
+document.getElementById("sellSqft").innerText+" Sqft"],
+
+["Total Plots",
+document.getElementById("plots").innerText],
+
+["Total Investment",
+document.getElementById("investment").innerText],
+
+["Break-even Price",
+document.getElementById("breakevenSqft").innerText+" ₹/sqft"],
+
+["Plots to Break-even",
+document.getElementById("breakevenPlots").innerText],
+
+["Revenue per Plot",
+document.getElementById("revenuePerPlot").innerText+" Lakhs"],
+
+["Total Revenue",
+document.getElementById("revenue").innerText+" Cr"],
+
+["Profit",
+document.getElementById("profit").innerText+" Cr"],
+
+["ROI",
+document.getElementById("roi").innerText+" %"]
+
+];
+
+outputs.forEach(row=>{
+doc.text(row[0],20,y);
+doc.text(":",110,y);
+doc.text(row[1],120,y);
+y+=9;
+});
+
+
+/* ---------- CHART ---------- */
+
+let canvas=document.getElementById("chart");
+
+let chartImage=canvas.toDataURL("image/png");
+
+y+=10;
+
+doc.setFontSize(14);
+doc.text("Financial Overview",20,y);
+
+y+=5;
+
+doc.addImage(chartImage,"PNG",20,y,170,80);
+
+y+=90;
+
+
+/* ---------- FOOTER ---------- */
+
+doc.setFontSize(10);
+doc.line(10,y,200,y);
+
+y+=5;
+
+doc.text("Confidential Feasibility Report | Real Estate Development Analysis",105,y,{align:"center"});
+
+doc.save("Layout_Feasibility_Report.pdf");
+
+}
+updateFields();
+
+</script>
+
+</body>
+</html>
